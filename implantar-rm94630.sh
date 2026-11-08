@@ -1,27 +1,15 @@
 #!/usr/bin/env bash
-# =============================================================================
-# implantar-rm94630.sh
-# Global Solution - Cloud Computing & MaaS (FIAP) - Projeto DroneVision
-#
-# Cria TODA a infraestrutura via Azure CLI e publica a aplicação Web:
-#   Resource Group  ->  Azure AI Vision  ->  App Service Plan  ->  Web App
-#
-# Executar no Azure Cloud Shell, modo BASH, dentro da pasta do repositório:
-#   chmod +x implantar-rm94630.sh
-#   ./implantar-rm94630.sh
-#
-# Opcional: trocar a região   ->  LOCATION=eastus2 ./implantar-rm94630.sh
-# =============================================================================
+
 set -euo pipefail
 
-# ------------------------------- Parâmetros ----------------------------------
+
 RM="94630"
 PROJETO="dronevision"
 LOCATION="${LOCATION:-centralus}"
 SKU_PLANO="${SKU_PLANO:-B1}"
 RUNTIME="${RUNTIME:-PYTHON:3.11}"
 
-# Padrão de nomenclatura do enunciado
+
 RG="rg-${PROJETO}-rm${RM}"
 AIV="aiv-${PROJETO}-rm${RM}"
 PLANO="plan-${PROJETO}-rm${RM}"
@@ -32,7 +20,7 @@ ZIP="app.zip"
 
 passo() { echo; echo "==> $1"; }
 
-# ------------------------------- Pré-checagens -------------------------------
+
 if [ ! -d "$PASTA_APP" ] || [ ! -f "$PASTA_APP/app.py" ]; then
   echo "ERRO: pasta '$PASTA_APP/' com app.py não encontrada. Rode o script na raiz do repositório."
   exit 1
@@ -41,16 +29,16 @@ fi
 passo "Assinatura em uso"
 az account show --query "{assinatura:name, id:id}" -o table
 
-# ---------------------------- Provedores de recursos -------------------------
+
 passo "Registrando provedores de recursos (necessário em algumas assinaturas)"
 az provider register --namespace Microsoft.CognitiveServices --wait
 az provider register --namespace Microsoft.Web --wait
 
-# ------------------------------- Resource Group ------------------------------
+
 passo "Criando Resource Group: $RG ($LOCATION)"
 az group create --name "$RG" --location "$LOCATION" --output table
 
-# ------------------------------- Azure AI Vision -----------------------------
+
 passo "Criando Azure AI Vision: $AIV"
 criar_visao() {
   az cognitiveservices account create \
@@ -64,7 +52,7 @@ criar_visao() {
     --output none
 }
 
-# Tenta o plano gratuito (F0); se a assinatura já tiver um F0, usa o S1.
+
 if SAIDA=$(criar_visao F0 2>&1); then
   echo "Recurso criado com o SKU gratuito (F0)."
 else
@@ -80,17 +68,33 @@ CHAVE=$(az cognitiveservices account keys list \
   --name "$AIV" --resource-group "$RG" --query "key1" -o tsv)
 echo "Endpoint do serviço de visão: $ENDPOINT"
 
-# ------------------------------- App Service Plan ----------------------------
-passo "Criando App Service Plan: $PLANO ($SKU_PLANO, Linux)"
-az appservice plan create \
-  --name "$PLANO" \
-  --resource-group "$RG" \
-  --location "$LOCATION" \
-  --sku "$SKU_PLANO" \
-  --is-linux \
-  --output table
 
-# ------------------------------- Web App -------------------------------------
+passo "Criando App Service Plan: $PLANO (Linux)"
+
+REGIOES_APP="${LOCATION_APP:-} $LOCATION eastus canadacentral mexicocentral chilecentral"
+PLANO_CRIADO="nao"
+for REGIAO in $REGIOES_APP; do
+  for SKU in "$SKU_PLANO" F1; do
+    echo "Tentando plano $SKU em $REGIAO..."
+    if SAIDA=$(az appservice plan create \
+        --name "$PLANO" --resource-group "$RG" \
+        --location "$REGIAO" --sku "$SKU" --is-linux \
+        --output none 2>&1); then
+      echo "Plano criado: SKU $SKU em $REGIAO."
+      PLANO_CRIADO="sim"
+      break 2
+    else
+      echo "  não foi possível: $(echo "$SAIDA" | grep -m1 -iE 'quota|disallowed|Message|error' || echo "$SAIDA" | head -n 1)"
+    fi
+  done
+done
+if [ "$PLANO_CRIADO" != "sim" ]; then
+  echo "ERRO: nenhuma região aceitou o App Service Plan (cota insuficiente)."
+  echo "Solicite aumento de cota no Portal da Azure ou use outra assinatura."
+  exit 1
+fi
+
+
 passo "Criando Web App: $APP ($RUNTIME)"
 az webapp create \
   --name "$APP" \
@@ -117,7 +121,7 @@ az webapp config set \
 
 az webapp update --name "$APP" --resource-group "$RG" --https-only true --output none
 
-# ------------------------------- Deploy --------------------------------------
+
 passo "Publicando a aplicação via Azure CLI (zip deploy)"
 rm -f "$ZIP"
 (cd "$PASTA_APP" && zip -qr "../$ZIP" . -x "__pycache__/*" "*.pyc")
@@ -129,7 +133,7 @@ az webapp deploy \
   --output none
 rm -f "$ZIP"
 
-# ------------------------------- Verificação ---------------------------------
+
 URL="https://${APP}.azurewebsites.net"
 passo "Aguardando a aplicação responder em $URL/health"
 for i in $(seq 1 24); do
