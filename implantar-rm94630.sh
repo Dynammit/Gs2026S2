@@ -17,7 +17,7 @@ set -euo pipefail
 # ------------------------------- Parâmetros ----------------------------------
 RM="94630"
 PROJETO="dronevision"
-LOCATION="${LOCATION:-brazilsouth}"
+LOCATION="${LOCATION:-centralus}"
 SKU_PLANO="${SKU_PLANO:-B1}"
 RUNTIME="${RUNTIME:-PYTHON:3.11}"
 
